@@ -87,7 +87,7 @@ fi
 
 echo ""
 echo "Next steps:"
-echo "  1. Run: sbx-setup --config ~/.claude"
+echo "  1. Run: sbx-setup -c ~/.claude:/home/agent/.claude"
 echo "  2. Run: sbx-start"
 echo ""
 echo "Templates location: $DATA_DIR/templates"

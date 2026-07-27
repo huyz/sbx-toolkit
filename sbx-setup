@@ -14,8 +14,7 @@
 #   --dockerfile <path>      Custom Dockerfile (overrides --template)
 #   --agent <variant>        Base image variant (default: claude-code)
 #   --tag <image:tag>        Output image tag (auto-generated if omitted)
-#   --config <path>          Agent config dir to bake in (e.g. ~/.claude)
-#   --config-target <path>   Where to place config in image (default: /home/agent/.claude)
+#   -c, --copy <src:dst>     Copy file/dir into image (repeatable, docker -v style)
 #   --registry <host:port>   Registry to push to (default: localhost:8050)
 #   --no-push                Build only, don't push to registry
 #   --dry-run                Print what would happen without doing it
@@ -31,8 +30,7 @@ TEMPLATE="mise"
 DOCKERFILE=""
 AGENT="claude-code"
 TAG=""
-CONFIG_PATH=""
-CONFIG_TARGET="/home/agent/.claude"
+COPY_SPECS=()
 REGISTRY="localhost:8050"
 NO_PUSH=false
 DRY_RUN=false
@@ -57,12 +55,8 @@ while [[ $# -gt 0 ]]; do
 		TAG="$2"
 		shift 2
 		;;
-	--config)
-		CONFIG_PATH="$2"
-		shift 2
-		;;
-	--config-target)
-		CONFIG_TARGET="$2"
+	-c | --copy)
+		COPY_SPECS+=("$2")
 		shift 2
 		;;
 	--registry)
@@ -163,22 +157,63 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 
 cp "$DOCKERFILE_PATH" "$BUILD_DIR/Dockerfile"
 
-# Copy agent config into the build context
-if [[ -n "$CONFIG_PATH" ]]; then
-	mkdir -p "$BUILD_DIR/agent-config"
-	if [[ -d "$CONFIG_PATH" ]]; then
-		cp -a "$CONFIG_PATH/." "$BUILD_DIR/agent-config/"
-	else
-		echo "WARNING: Config path not found: $CONFIG_PATH — skipping" >&2
-	fi
-else
-	mkdir -p "$BUILD_DIR/agent-config"
+COPY_RULES=()
+
+# Copy additional files/directories into the build context.
+# Syntax mirrors docker -v: source:target.
+if [[ ${#COPY_SPECS[@]} -gt 0 ]]; then
+	command -v rsync >/dev/null 2>&1 || {
+		echo "ERROR: rsync is required for --copy (used to copy directories)." >&2
+		echo "       Install it (e.g. 'brew install rsync' on macOS, 'apt install rsync' on Debian)." >&2
+		exit 1
+	}
+
+	mkdir -p "$BUILD_DIR/copies"
+	copy_idx=0
+
+	for spec in "${COPY_SPECS[@]}"; do
+		IFS=':' read -r raw_source target extra <<<"$spec"
+
+		if [[ -z "${raw_source:-}" || -z "${target:-}" || -n "${extra:-}" ]]; then
+			echo "ERROR: Invalid --copy value '$spec'. Expected source:target" >&2
+			exit 1
+		fi
+
+		source_path="${raw_source/#\~/$HOME}"
+		context_path="copies/item-${copy_idx}"
+
+		if [[ -d "$source_path" ]]; then
+			mkdir -p "$BUILD_DIR/$context_path"
+			rsync -aL \
+				--from0 \
+				--exclude-from=<(
+					cd "$source_path" &&
+					find . -type l ! -exec test -e {} \; -print0 |
+					perl -0pe 's{\A\./}{}'
+				) \
+				"$source_path/." "$BUILD_DIR/$context_path/"
+
+			COPY_RULES+=("COPY --chown=agent:agent ${context_path}/ ${target}")
+		elif [[ -f "$source_path" || -L "$source_path" ]]; then
+			cp -L "$source_path" "$BUILD_DIR/$context_path"
+			COPY_RULES+=("COPY --chown=agent:agent ${context_path} ${target}")
+		else
+			echo "WARNING: Copy source not found: $source_path — skipping --copy '$spec'" >&2
+			continue
+		fi
+
+		copy_idx=$((copy_idx + 1))
+	done
 fi
 
-if [[ -d "$BUILD_DIR/agent-config" ]]; then
-	if ! find "$BUILD_DIR/agent-config" -mindepth 1 -maxdepth 1 | grep -q .; then
-		echo "WARNING: No agent config files were copied into the build context" >&2
-	fi
+if [[ ${#COPY_RULES[@]} -gt 0 ]]; then
+	{
+		echo ""
+		echo "# Additional files injected by sbx-setup --copy"
+		for rule in "${COPY_RULES[@]}"; do
+			echo "$rule"
+		done
+	} >>"$BUILD_DIR/Dockerfile"
 fi
 
 # ── summary ───────────────────────────────────────────────────────────────────
@@ -187,13 +222,19 @@ echo "→ Setting up local sandbox environment"
 echo "  template:      $DOCKERFILE_PATH"
 echo "  agent:         $AGENT"
 echo "  image tag:     $TAG"
-echo "  agent config:  ${CONFIG_PATH:-none}"
+if [[ ${#COPY_SPECS[@]} -gt 0 ]]; then
+	echo "  copies:"
+	for spec in "${COPY_SPECS[@]}"; do
+		echo "    - $spec"
+	done
+else
+	echo "  copies:        none"
+fi
 echo ""
 
 if [[ "$DRY_RUN" == true ]]; then
 	echo "docker build \\"
 	echo "  --build-arg AGENT=$AGENT \\"
-	echo "  --build-arg CONFIG_TARGET=$CONFIG_TARGET \\"
 	echo "  -t $TAG \\"
 	echo "  $BUILD_DIR"
 	[[ "$NO_PUSH" == false ]] && echo "docker push $TAG"
@@ -209,7 +250,6 @@ fi
 
 docker build \
 	--build-arg AGENT="$AGENT" \
-	--build-arg CONFIG_TARGET="$CONFIG_TARGET" \
 	-t "$TAG" \
 	"$BUILD_DIR"
 

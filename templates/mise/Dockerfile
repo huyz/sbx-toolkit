@@ -18,7 +18,6 @@ ARG AGENT=claude-code
 FROM docker/sandbox-templates:${AGENT}
 
 ARG AGENT=claude-code
-ARG CONFIG_TARGET=/home/agent/.claude
 
 LABEL org.opencontainers.image.description="sbx-toolkit mise template (${AGENT})"
 
@@ -36,8 +35,3 @@ RUN echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc \
 RUN mkdir -p ~/.config/mise \
  && printf '[settings]\ntrusted_config_paths = ["/workspace"]\n' \
     >> ~/.config/mise/config.toml
-
-# Copy optional agent config (e.g. ~/.claude, ~/.codex).
-# The build script normalises the source to agent-config/ in the build context.
-# If no config is provided, this is an empty directory and has no effect.
-COPY --chown=agent:agent agent-config/ ${CONFIG_TARGET}/

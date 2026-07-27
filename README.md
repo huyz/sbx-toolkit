@@ -64,7 +64,7 @@ cd sbx-toolkit
 ./sbx-setup --agent claude-code
 
 # With your ~/.claude config baked in (recommended)
-./sbx-setup --agent claude-code --config ~/.claude
+./sbx-setup --agent claude-code -c ~/.claude:/home/agent/.claude
 
 # With a custom Dockerfile
 ./sbx-setup --dockerfile ./my-template/Dockerfile --agent claude-code
@@ -101,8 +101,7 @@ Options:
   --dockerfile <path>    Custom Dockerfile (overrides --template)
   --agent <variant>      Base image variant (default: claude-code)
   --tag <image:tag>      Output image tag (auto-generated if omitted)
-  --config <path>        Agent config dir to bake in (e.g. ~/.claude)
-  --config-target <path> Where config lands in image (default: /home/agent/.claude)
+  -c, --copy <src:dst>   Copy file/dir into image (repeatable, docker -v style)
   --registry <host:port> Registry to use (default: localhost:8050)
   --no-push              Build only, skip push
   --dry-run              Print commands without running
@@ -115,16 +114,22 @@ Options:
 ./sbx-setup
 
 # With your claude config
-./sbx-setup --config ~/.claude
+./sbx-setup -c ~/.claude:/home/agent/.claude
+
+# Copy multiple files/directories into the image
+./sbx-setup \
+  -c ~/.claude:/home/agent/.claude \
+  -c ~/.gitconfig:/home/agent/.gitconfig \
+  -c ~/.config/gh:/home/agent/.config/gh
 
 # Codex instead of claude
-./sbx-setup --agent codex --config ~/.codex --config-target /home/agent/.codex
+./sbx-setup --agent codex -c ~/.codex:/home/agent/.codex
 
 # Custom Dockerfile
 ./sbx-setup --dockerfile ./templates/my-stack/Dockerfile --agent claude-code
 
 # Preview without running
-./sbx-setup --config ~/.claude --dry-run
+./sbx-setup -c ~/.claude:/home/agent/.claude --dry-run
 ```
 
 ### Updating your environment
@@ -132,7 +137,7 @@ Options:
 When you change `~/.claude`, just re-run:
 
 ```bash
-./sbx-setup --config ~/.claude
+./sbx-setup -c ~/.claude:/home/agent/.claude
 ```
 
 This rebuilds and repushes the image. Next time you run `sbx-start` in any
@@ -244,7 +249,7 @@ curl -fsSL https://raw.githubusercontent.com/your-org/sbx-toolkit/main/install.s
 # 3. Set up your local sandbox environment
 git clone https://github.com/maxkrivich/sbx-toolkit
 cd sbx-toolkit
-./sbx-setup --agent claude-code --config ~/.claude
+./sbx-setup --agent claude-code -c ~/.claude:/home/agent/.claude
 
 # 4. Set secrets (sbx-start will tell you exactly which ones are needed)
 sbx secret set ANTHROPIC_API_KEY
