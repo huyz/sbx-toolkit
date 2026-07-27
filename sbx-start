@@ -143,7 +143,15 @@ done < <(toml_get_array "$CONFIG_FILE" "blocked_domains")
 
 # ── build sbx run command ──────────────────────────────────────────────────────
 
-CMD=(sbx run --template "$TEMPLATE")
+WORKDIR=$(basename "$(pwd)")
+SANDBOX="$AGENT-$WORKDIR"
+
+CMD=(sbx run --name "$SANDBOX")
+
+# If not yet running, then we can add --template flag
+if sbx ls -q | grep -Fqx "$SANDBOX"; then
+	CMD+=(--template "$TEMPLATE")
+fi
 
 [[ -n "$CLONE" ]] && CMD+=(--clone)
 
@@ -166,6 +174,7 @@ echo ""
 
 if [[ "$DRY_RUN" == true ]]; then
 	echo "(dry run — not executing)"
+	echo exec "${CMD[@]}"
 	exit 0
 fi
 
