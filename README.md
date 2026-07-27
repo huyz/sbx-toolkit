@@ -161,7 +161,7 @@ Commit this file to your project repo. All fields under `[sandbox]`.
 | `agent` | ✅ | — | `claude`, `codex`, `kiro`, `shell`, etc. |
 | `template` | ✅ | — | Paste the exact image reference printed by `sbx-setup` |
 | `network_policy` | | `balanced` | `allow-all`, `balanced`, or `deny-all` |
-| `branch` | | — | `auto` or branch name. Omit for direct mode. |
+| `clone` | | — | `enabled`. Omit for direct writes to repo. |
 | `required_secrets` | | — | Secret names to check. Missing ones warn, don't block. |
 | `allowed_domains` | | — | Extra domains to allow on top of base policy. |
 | `blocked_domains` | | — | Domains to block even if base policy allows them. |
