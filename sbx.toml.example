@@ -41,11 +41,11 @@ network_policy = "balanced"
 
 # ── git ───────────────────────────────────────────────────────────────────────
 
-# Branch mode. The agent works on its own branch instead of your main working tree.
-# - "auto":       sbx generates a branch name
-# - "my-branch":  use a fixed branch name
+# Clone mode
+# - "enabled":    clones repo with the same ref (e.g. branch) as on the host
+#                 XXX Prevents from .claude from being copied
 # - omit:         direct mode — agent edits your working tree directly
-branch = "auto"
+#clone = "enabled"
 
 # ── secrets ───────────────────────────────────────────────────────────────────
 
