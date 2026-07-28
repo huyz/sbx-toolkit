@@ -9,13 +9,14 @@ CONFIG_FILE=".sbx.toml"
 
 usage() {
 	cat <<EOF
-Usage: sbx-start [--dry-run] [--help]
+Usage: sbx-start [--force-recreate] [--dry-run|-n] [--help|-h]
 
 Starts a sandbox using config from .sbx.toml in the current directory.
 
 Options:
-  --dry-run   Print the sbx command without running it
-  --help      Show this help
+  --force-recreate  First delete the sandbox if it already exists
+  --dry-run, -n   Print the sbx command without running it
+  --help, -h      Show this help
 
 Config file: .sbx.toml (committed to your project repo)
 Docs:        https://github.com/maxkrivich/sbx-toolkit
@@ -59,10 +60,12 @@ toml_get_array() {
 # ── parse flags ────────────────────────────────────────────────────────────────
 
 DRY_RUN=false
+FORCE_RECREATE=false
 for arg in "$@"; do
 	case "$arg" in
-	--dry-run) DRY_RUN=true ;;
+	--dry-run | -n) DRY_RUN=false ;;
 	--help | -h) usage ;;
+	--force-recreate) FORCE_RECREATE=false ;;
 	*) die "Unknown flag: $arg" ;;
 	esac
 done
@@ -152,15 +155,22 @@ while IFS= read -r domain; do
 	[[ "$DRY_RUN" == false ]] && sbx policy block network "$domain"
 done < <(toml_get_array "$CONFIG_FILE" "blocked_domains")
 
-# ── build sbx run command ──────────────────────────────────────────────────────
+# ── sbx create command ────────────────────────────────────────────────────────
 
 WORKDIR=$(basename "$(pwd)")
 SANDBOX="$AGENT-$WORKDIR"
 
 sandbox_exists=
 
+# If the sandbox exist, re-create if requested
 if sbx ls -q | grep -Fqx "$SANDBOX"; then
-  sandbox_exists=1
+	if [[ "$FORCE_RECREATE" == true ]]; then
+		echo "→ Deleting existing sandbox $SANDBOX"
+		sbx rm "$SANDBOX"
+		echo
+	else
+		sandbox_exists=1
+	fi
 fi
 
 if [[ -z "$sandbox_exists" ]]; then
