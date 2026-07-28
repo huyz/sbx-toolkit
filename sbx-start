@@ -162,6 +162,127 @@ SANDBOX="$AGENT-$WORKDIR"
 
 sandbox_exists=
 
+# ── Utility functions (also callable from .sbxrc) ───────────────────────────
+
+# Removes specified custom secret, if found, by its placeholder in the sandbox
+sbx_secret_rm() {
+	local SANDBOX=$1 env=$2 placeholder
+	while IFS= read -r placeholder; do
+		sbx secret rm -f "$SANDBOX" --placeholder "$placeholder" >/dev/null
+	done < <(sbx secret ls "$SANDBOX" | awk -v env="$env" '
+		$(NF - 2) == env { print $(NF - 1) }
+	') # awk: we count columns from the right because the TARGET columns may have spaces
+}
+
+# Adds specified custom secrets
+# Example:
+# sbx_secret_set \
+#   AWS_BEARER_TOKEN_BEDROCK "bedrock-runtime.$AWS_REGION.amazonaws.com" \
+#   AWS_BEARER_TOKEN_BEDROCK "bedrock.$AWS_REGION.amazonaws.com" \
+sbx_secret_set() {
+	if (( $# % 2 != 0 )); then
+		echo "${BASH_SOURCE[0]}: ERROR: sbx_secret_set expects ENV TARGET pairs" >&2
+		exit 1
+	fi
+
+	local env host placeholder
+	local -a all_args=("$@")
+	local -a envs=()
+
+	# Validate all env vars are set, and collect unique envs in order of first appearance.
+	# (Avoids bash-4 associative arrays so this works on macOS's bash 3.2.)
+	local i e seen
+	for (( i = 0; i < ${#all_args[@]}; i += 2 )); do
+		env="${all_args[$i]}"
+
+		if [[ -z "${!env:-}" ]]; then
+			echo "${BASH_SOURCE[0]}: ERROR: environment variable $env not found." >&2
+			exit 1
+		fi
+
+		seen=0
+		for e in "${envs[@]}"; do
+			[[ "$e" == "$env" ]] && seen=1
+		done
+		[[ "$seen" == 0 ]] && envs+=("$env")
+	done
+
+	for env in "${envs[@]}"; do
+		echo "🤐 Adding custom secret $env"
+		sbx_secret_rm "$SANDBOX" "$env"
+		# We use a stable placeholder so that we don't have to re-create the sandbox shells
+		# if there's an update to the secret or to the hosts.
+		placeholder="sbx-cs-$env-placeholder"
+
+		local args=()
+		for (( i = 0; i < ${#all_args[@]}; i += 2 )); do
+			if [[ "${all_args[$i]}" == "$env" ]]; then
+				args+=(--host "${all_args[$i + 1]}")
+			fi
+		done
+
+		printf '%s' "${!env}" |
+			sbx secret set-custom "$SANDBOX" \
+				"${args[@]}" \
+				--placeholder "$placeholder" \
+				--env "$env" >/dev/null
+		echo
+	done
+}
+
+# Exports the specified environment variables to /etc/sandbox-persistent.sh
+# to populate every shell in the sandbox
+sbx_persistent_env_vars() {
+	if [[ "$#" -eq 0 ]]; then
+		echo "${FUNCNAME[0]}: ERROR: expected at least one environment variable name" >&2
+		return 1
+	fi
+
+	local exports=""
+	local var vars_hash block_start block_end
+
+	# Use a stable hash so repeated calls with the same env-var set update in place.
+	vars_hash="$(printf '%s\n' "$@" | LC_ALL=C sort -u | tr '\n' ',' | cksum | awk '{print $1}' | cut -c1-8)"
+	# WARNING: block_start/block_end must not contain the following chars: " /
+	block_start="# >>> sbx persistent env vars ${vars_hash}"
+	block_end="# <<< sbx persistent env vars ${vars_hash}"
+
+	for var in "$@"; do
+		if [[ -z "${!var:-}" ]]; then
+			echo "${FUNCNAME[0]}: ERROR: $var not found. Did you \`direnv allow\` at the host before running sbx-start?" >&2
+			return 1
+		fi
+
+		exports+=$'\n'"  export $var=$(printf '%q' "${!var}")"
+	done
+
+	echo "💲 Appending persistent environment variables to /etc/sandbox-persistent.sh: $*"
+
+	sbx exec -d "$SANDBOX" bash -s <<EOF
+set -euo pipefail
+
+persistent_file="/etc/sandbox-persistent.sh"
+
+touch "\$persistent_file"
+
+tmp_file="\$(mktemp)"
+sed "/^${block_start}\$/,/^${block_end}\$/d" "\$persistent_file" > "\$tmp_file"
+cat "\$tmp_file" > "\$persistent_file"
+rm -f "\$tmp_file"
+
+cat >> "\$persistent_file" <<EOF_PERSISTENT_ENV_VARS
+
+${block_start}
+# Prevent infinite recursion from subshells
+if [[ -z "\\\$_SANDBOX_PERSISTENT_SH" ]]; then
+  export _SANDBOX_PERSISTENT_SH=1
+${exports}
+fi
+${block_end}
+EOF_PERSISTENT_ENV_VARS
+EOF
+}
+
 # If the sandbox exist, re-create if requested
 if sbx ls -q | grep -Fqx "$SANDBOX"; then
 	if [[ "$FORCE_RECREATE" == true ]]; then
@@ -242,6 +363,47 @@ done < <(toml_get_array "$CONFIG_FILE" "include_untracked_files" || true)
 echo
 
 # ── sbx run command ───────────────────────────────────────────────────────────
+# ── Optionally, apply secrets from config ────────────────────────────────────
+
+IMPORTED_SECRET_VARS=()
+while IFS= read -r secret_env; do
+	[[ -z "$secret_env" ]] && continue
+	IMPORTED_SECRET_VARS+=("$secret_env")
+done < <(toml_get_array "$CONFIG_FILE" "imported_env_vars" || true)
+
+if [[ ${#IMPORTED_SECRET_VARS[@]} -gt 0 ]]; then
+	echo "→ Importing persistent env vars: ${IMPORTED_SECRET_VARS[*]}"
+	if [[ -n "$DRY_RUN" ]]; then
+		echo "(dry run — not executing) sbx_persistent_env_vars ${IMPORTED_SECRET_VARS[*]}"
+	else
+		sbx_persistent_env_vars "${IMPORTED_SECRET_VARS[@]}"
+	fi
+	echo
+fi
+
+CUSTOM_SECRET_ARGS=()
+while IFS= read -r custom_secret_entry; do
+	[[ -z "$custom_secret_entry" ]] && continue
+
+	if [[ "$custom_secret_entry" =~ ^([^[:space:]]+)[[:space:]]+(.+)$ ]]; then
+		env_name="${BASH_REMATCH[1]}"
+		target="${BASH_REMATCH[2]}"
+		CUSTOM_SECRET_ARGS+=("$env_name" "$target")
+	else
+		die "Invalid custom_secrets entry '$custom_secret_entry'. Expected format: 'ENV TARGET'"
+	fi
+done < <(toml_get_array "$CONFIG_FILE" "custom_secrets" || true)
+
+if [[ ${#CUSTOM_SECRET_ARGS[@]} -gt 0 ]]; then
+	echo "→ Applying custom secrets from config"
+	if [[ -n "$DRY_RUN" ]]; then
+		echo "(dry run — not executing) sbx_secret_set ${CUSTOM_SECRET_ARGS[*]}"
+	else
+		sbx_secret_set "${CUSTOM_SECRET_ARGS[@]}"
+	fi
+	echo
+fi
+# ── sbx run command ──────────────────────────────────────────────────────
 
 echo "→ Running sandbox $SANDBOX"
 if [[ "$DRY_RUN" == true ]]; then

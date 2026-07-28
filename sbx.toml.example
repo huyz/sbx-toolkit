@@ -75,6 +75,20 @@ network_policy = "balanced"
 #   "GITHUB_TOKEN",
 # ]
 
+# Custom secret mappings to inject into sandbox hosts.
+# Each entry must be in the form: "ENV TARGET"
+# Equivalent to having a .sbxrc call: sbx_secret_set ENV TARGET [ENV TARGET...]
+# custom_secrets = [
+#   "AWS_BEARER_TOKEN_BEDROCK bedrock-runtime.*.amazonaws.com",
+#   "AWS_BEARER_TOKEN_BEDROCK bedrock.*.amazonaws.com",
+# ]
+
+# Environment variables to persist into every shell in the sandbox.
+# Equivalent to having a .sbxrc call: sbx_persistent_env_vars <ENV...>
+# imported_env_vars = [
+#   "AWS_REGION",
+# ]
+
 # ── workspaces ────────────────────────────────────────────────────────────────
 
 # Additional directories to mount into the sandbox (read-only).
