@@ -42,6 +42,7 @@ Your machine
 | Agent instructions, plugins, commands | `~/.claude` → baked into image via `sbx-setup` | Personal, machine-level |
 | Tool versions (node, python, go…) | `mise.toml` in project → read by mise at runtime | Project-level, committed |
 | Sandbox settings (agent, network, files, secrets, env) | `.sbx.toml` in project → read by `sbx-start` | Project-level, committed |
+| Project-specific shell hooks | `.sbxrc` in project root → sourced by `sbx-start` | Project-level, committed |
 | Secret values | OS keychain via `sbx secret set` | Never on disk or in images |
 
 ---
