@@ -362,7 +362,6 @@ while IFS= read -r untracked_file; do
 done < <(toml_get_array "$CONFIG_FILE" "include_untracked_files" || true)
 echo
 
-# ── sbx run command ───────────────────────────────────────────────────────────
 # ── Optionally, apply secrets from config ────────────────────────────────────
 
 IMPORTED_SECRET_VARS=()
@@ -403,6 +402,22 @@ if [[ ${#CUSTOM_SECRET_ARGS[@]} -gt 0 ]]; then
 	fi
 	echo
 fi
+
+# ── Optionally, run extra commands ────────────────────────────────────────────
+
+if [[ -e .sbxrc ]]; then
+
+	echo "→ Running .sbxrc"
+  if [[ -n "$DRY_RUN" ]]; then
+    echo "(dry run — not executing)"
+  else
+    # shellcheck disable=SC1091
+    source .sbxrc
+  fi
+	echo
+
+fi
+
 # ── sbx run command ──────────────────────────────────────────────────────
 
 echo "→ Running sandbox $SANDBOX"
