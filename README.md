@@ -1,4 +1,14 @@
+
 # sbx-toolkit
+
+> [!NOTE] ✍ This fork:
+> - Updated to work with latest Docker Sandboxes as of 2026-08-08
+> - Adds support for `clone` mode and the `include_untracked_files` option to copy project files
+>   that are not tracked by git and thus not included by a `clone`.
+> - Adds support for adding files into the Docker context before build (`sbx -c <src:dst>`)
+> - Adds support for arbitrary commands to be run whenever `sbx-start` is invoked (`.sbxrc`)
+
+---
 
 Two tools for running AI coding agents in [Docker Sandboxes](https://github.com/docker/sbx-releases):
 
